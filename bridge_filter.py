@@ -12,13 +12,16 @@ Built to parse:
 http://clubresults.acbl.org/Results/232132/2015/11/151102E.HTM
 '''
 
+import os
 import re
 import sys
+import json
 
 from collections import namedtuple
 from itertools import groupby
 
 from bs4 import BeautifulSoup
+import requests
 
 Result = namedtuple('Result', [
     'board',
@@ -65,6 +68,25 @@ def remove_unplayed_boards(pattern, soup):
         board.extract()
 
 
+def gist_file(path):
+    '''Posts a file to GitHub gists and returns the rawgit.com URL.'''
+    basename = os.path.basename(path)
+    obj = {
+      'files': {
+          basename: {
+              'content': open(path).read()
+          }
+      },
+      'description': 'Filtered BridgeComposer output',
+      'public': True
+    }
+    r = requests.post('https://api.github.com/gists', json=obj)
+    r.raise_for_status()
+    raw_url = r.json()['files'][basename]['raw_url']
+    assert 'gist.githubusercontent.com' in raw_url
+    return raw_url.replace('gist.githubusercontent.com', 'cdn.rawgit.com')
+
+
 if __name__ == '__main__':
     pattern, htmlpath = sys.argv[1:]
     assert '.html' in htmlpath
@@ -84,4 +106,8 @@ if __name__ == '__main__':
     filterpath = htmlpath.replace('.html', '.filtered.html')
     open(filterpath, 'w').write(str(soup))
 
+    # attempt to gist the file
+    rawgit_url = gist_file(filterpath)
+
     print '\nWrote filtered HTML to %s\n' % filterpath
+    print '\nView results at %s\n' % rawgit_url
