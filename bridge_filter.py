@@ -13,6 +13,9 @@ http://clubresults.acbl.org/Results/232132/2015/11/151102E.HTM
 '''
 
 import os
+# TODO: determine whether partnership is EW or NS from the page
+# TODO: determine partnership's section from the page
+
 import re
 import sys
 import json
@@ -97,9 +100,13 @@ if __name__ == '__main__':
     results = results_for_pattern(pattern, soup)
     for declarer, rs in groupby(sorted(results, key=lambda r: r.declarer), lambda r: r.declarer):
         rs = list(rs)
-        print '%s (%d)' % (declarer, len(rs))
+        avg = 1. * sum((float(r.ew_matchpoints) for r in rs)) / len(rs)
+        print '%s (%d, avg=%f)' % (declarer, len(rs), avg)
         for r in rs:
-            print '    %2s %s by %s making %s' % (r.board, r.contract, r.declarer, r.making)
+            print '    %2s %s by %s making %s (%s)' % (r.board, r.contract, r.declarer, r.making, r.ew_matchpoints)
+
+    for r in results:
+        print '%2s\t%s\t%s\t%s\t%s' % (r.board, r.contract, r.declarer, r.making, r.ew_matchpoints)
 
     remove_unplayed_boards(pattern, soup)
     remove_section(soup, 'A')
