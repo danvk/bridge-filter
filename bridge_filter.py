@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 '''
 Usage:
     pip install -r requirements.txt
@@ -25,6 +26,9 @@ from itertools import groupby
 
 from bs4 import BeautifulSoup
 import requests
+
+DDS_URL = 'http://www.danvk.org/bridge/'
+#DDS_URL = 'http://localhost:8080/'
 
 Result = namedtuple('Result', [
     'board',
@@ -71,6 +75,61 @@ def remove_unplayed_boards(pattern, soup):
         board.extract()
 
 
+def add_links(soup):
+    for board in soup.select('center > div'):
+        bchd = board.select('.bchd')[0]
+        pbn = extract_pbn(bchd)
+        dda_el = board.select('.bcdda')[0]
+        dda = dda_el.get_text()
+        # e.g. 'EW 3♠; EW 3♥; EW 3♣; W 1N'
+        contracts = []
+        for contract in ascii_suit(dda).split(';')[:-1]:
+            contract = contract.replace('\n', '').strip()
+            declarer = contract[0]
+            c = contract.split(u' ')[1]  # non-breaking space
+            num = int(c[0])
+            strain = c[1]
+            contracts.append((declarer, strain))
+        count = [0]
+        def make_link(match):
+            c = contracts[count[0]]
+            count[0] += 1
+            return u'<a target="_blank" href="%s?deal=%s&declarer=%s&strain=%s">%s</a>; ' % (DDS_URL, pbn, c[0], c[1], match.group(1))
+        new_html = re.sub(r'([EWNS]{1,2}\xa0[1-7].*?); ', make_link, unicode(dda_el))
+        dda_el.replaceWith(BeautifulSoup(new_html, 'html.parser'))
+
+
+def extract_hand(bchand):
+    '''Given a 'table.bchand' element, return PBN for that hand.'''
+    holdings = []
+    for suit_td in bchand.select('td'):
+        txt = suit_td.get_text()
+        if any((suit in txt) for suit in {u'♠', u'♥', u'♦', u'♣'}):
+            continue  # this is the suit label td, not the holding td
+        if txt == u'—':
+            holding = ''
+        else:
+            holding = txt.replace('10', 'T').replace(' ', '')
+        holdings.append(holding)
+    return '.'.join(holdings)
+
+
+def extract_pbn(bchd):
+    '''Given a 'table.bchd' element, return PBN for the board.'''
+    player = ['N', 'W', 'E', 'S']  # order of hands in HTML
+    hands = {
+        player[i]: extract_hand(bchand)
+        for (i, bchand) in enumerate(bchd.select('table.bchand'))
+    } 
+    return 'N:' + ' '.join((hands[p] for p in ['N', 'E', 'S', 'W']))
+
+SUIT_MAP = {u'♠': u'S', u'♥': u'H', u'♦': u'D', u'♣': u'C'}
+def ascii_suit(txt):
+    for k, v in SUIT_MAP.iteritems():
+        txt = txt.replace(k, v)
+    return txt
+
+
 def gist_file(path):
     '''Posts a file to GitHub gists and returns the rawgit.com URL.'''
     basename = os.path.basename(path)
@@ -110,11 +169,11 @@ if __name__ == '__main__':
 
     remove_unplayed_boards(pattern, soup)
     remove_section(soup, 'A')
+    add_links(soup)
     filterpath = htmlpath.replace('.html', '.filtered.html')
     open(filterpath, 'w').write(str(soup))
 
+    print '\nWrote filtered HTML to %s\n' % filterpath
     # attempt to gist the file
     rawgit_url = gist_file(filterpath)
-
-    print '\nWrote filtered HTML to %s\n' % filterpath
     print '\nView results at %s\n' % rawgit_url
