@@ -76,14 +76,14 @@ def remove_unplayed_boards(pattern, soup):
 
 
 def add_links(soup):
-    for board in soup.select('center > div'):
+    for i, board in enumerate(soup.select('center > div')):
         bchd = board.select('.bchd')[0]
         pbn = extract_pbn(bchd)
         dda_el = board.select('.bcdda')[0]
         dda = dda_el.get_text()
         # e.g. 'EW 3♠; EW 3♥; EW 3♣; W 1N'
         contracts = []
-        for contract in ascii_suit(dda).split(';')[:-1]:
+        for contract in re.sub('; Par.*', '', ascii_suit(dda)).split(';')[:-1]:
             contract = contract.replace('\n', '').strip()
             declarer = contract[0]
             c = contract.split(u' ')[1]  # non-breaking space
@@ -92,6 +92,8 @@ def add_links(soup):
             contracts.append((declarer, strain))
         count = [0]
         def make_link(match):
+            if count[0] >= len(contracts):
+                return match.group(0)
             c = contracts[count[0]]
             count[0] += 1
             return u'<a target="_blank" href="%s?deal=%s&declarer=%s&strain=%s">%s</a>; ' % (DDS_URL, pbn, c[0], c[1], match.group(1))
