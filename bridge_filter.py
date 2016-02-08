@@ -1,13 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
-Usage:
+Setup:
     pip install -r requirements.txt
+
+Run:
     ./bridge_filter.py yourname path/to/BridgeComposer.html
 
-Prints out stats on the boards you played and writes out
+Or:
+    ./bridge_filter.py yourname http://clubresults.acbl.org/...
+
+This will print out stats on the boards you played, write out
 
     path/to/BridgeComposer.filtered.html
+
+and post it to gist.github.com.
 
 Built to parse:
 http://clubresults.acbl.org/Results/232132/2015/11/151102E.HTM
@@ -75,7 +82,15 @@ def remove_unplayed_boards(pattern, soup):
         board.extract()
 
 
-def add_links(soup):
+def add_stats(soup, stats):
+    '''Add in a preamble with stats.'''
+    pre = soup.new_tag('pre')
+    pre.string = stats
+    soup.body.insert(0, pre)
+
+
+def add_links(soup, source):
+    # Convert all the double dummy results into links.
     for i, board in enumerate(soup.select('center > div')):
         bchd = board.select('.bchd')[0]
         pbn = extract_pbn(bchd)
@@ -99,6 +114,9 @@ def add_links(soup):
             return u'<a target="_blank" href="%s?deal=%s&declarer=%s&strain=%s">%s</a>; ' % (DDS_URL, pbn, c[0], c[1], match.group(1))
         new_html = re.sub(r'([EWNS]{1,2}\xa0[1-7].*?); ', make_link, unicode(dda_el))
         dda_el.replaceWith(BeautifulSoup(new_html, 'html.parser'))
+
+    # Add a link back to the original source.
+    soup.body.insert(0, BeautifulSoup('<p><a href="%s">View Original</a></p>\n' % source, 'html.parser'))
 
 
 def extract_hand(bchand):
@@ -151,27 +169,47 @@ def gist_file(path):
     return raw_url.replace('gist.githubusercontent.com', 'cdn.rawgit.com')
 
 
-if __name__ == '__main__':
-    pattern, htmlpath = sys.argv[1:]
-    assert '.html' in htmlpath
+def read_html(arg):
+    '''Returns HTML for the argument, which is either a URL or a file.'''
+    if os.path.exists(arg):
+        return open(arg).read()
+    r = requests.get(arg)
+    r.raise_for_status()
+    return r.text
 
-    html = open(htmlpath).read()
+
+if __name__ == '__main__':
+    try:
+        pattern, source = sys.argv[1:]
+    except ValueError:
+        sys.stderr.write('Usage: %s [your name] path/to/results\n' % sys.argv[0])
+        sys.exit(1)
+
+    html = read_html(source)
+    htmlpath = os.path.basename(source)
     soup = BeautifulSoup(html, "html.parser")
+
+    stats = 'By player:\n'
 
     results = results_for_pattern(pattern, soup)
     for declarer, rs in groupby(sorted(results, key=lambda r: r.declarer), lambda r: r.declarer):
         rs = list(rs)
         avg = 1. * sum((float(r.ew_matchpoints) for r in rs)) / len(rs)
-        print '%s (%d, avg=%f)' % (declarer, len(rs), avg)
+        stats += '%s (%d, avg=%f)\n' % (declarer, len(rs), avg)
         for r in rs:
-            print '    %2s %s by %s making %s (%s)' % (r.board, r.contract, r.declarer, r.making, r.ew_matchpoints)
+            stats += '    %2s %s by %s making %s (%s)\n' % (
+                    r.board, r.contract, r.declarer, r.making, r.ew_matchpoints)
 
+    stats += '\nBy board:\n'
     for r in results:
-        print '%2s\t%s\t%s\t%s\t%s' % (r.board, r.contract, r.declarer, r.making, r.ew_matchpoints)
+        stats += '%2s\t%s\t%s\t%s\t%s\n' % (r.board, r.contract, r.declarer, r.making, r.ew_matchpoints)
+
+    print stats
 
     remove_unplayed_boards(pattern, soup)
-    remove_section(soup, 'A')
-    add_links(soup)
+    remove_section(soup, 'A')  # TODO: detect the player's section.
+    add_stats(soup, stats)
+    add_links(soup, source)
     filterpath = htmlpath.replace('.html', '.filtered.html')
     open(filterpath, 'w').write(str(soup))
 
