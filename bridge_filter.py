@@ -46,13 +46,20 @@ Result = namedtuple('Result', [
     'ew_score',
     'ns_matchpoints',
     'ew_matchpoints',
-    'pair'
+    'ns_pair',
+    'ew_pair'
     ])
 
 
+def get_all_boards(soup):
+    return soup.select('.bcboard > .bchd')
+
+
 def matching_boards(pattern, soup):
-    return [board for board in soup.select('center > div')
-                if re.search(pattern, board.get_text())]
+    boards = get_all_boards(soup)
+    print 'Found %d total boards on page' % len(boards)
+    return [board for board in boards
+            if re.search(pattern, board.get_text())]
 
 
 def results_for_pattern(pattern, soup):
@@ -66,18 +73,20 @@ def results_for_pattern(pattern, soup):
     return results
 
 
-def remove_section(soup, section):
+def filter_section(soup, ok_section):
     def matches_section(row):
-        m = re.search(r' vs ([A-Z])\d+', row.get_text())
-        return m and m.group(1) == section
-    trs = [row for row in soup.select('.bcst tr') if matches_section(row)]
+        nspair = row.select_one('.bcstpairns')
+        if not nspair:
+            return True
+        return nspair.text[0] == ok_section
+    trs = [row for row in soup.select('.bcst tr') if not matches_section(row)]
     for tr in trs:
         tr.extract()
 
 
 def remove_unplayed_boards(pattern, soup):
-    boards = [board for board in soup.select('center > div')
-                if not re.search(pattern, board.get_text())]
+    boards = [board for board in get_all_boards(soup)
+              if not re.search(pattern, board.get_text())]
     for board in boards:
         board.extract()
 
@@ -91,7 +100,7 @@ def add_stats(soup, stats):
 
 def add_links(soup, source):
     # Convert all the double dummy results into links.
-    for i, board in enumerate(soup.select('center > div')):
+    for i, board in enumerate(get_all_boards(soup)):
         bchd = board.select('.bchd')[0]
         pbn = extract_pbn(bchd)
         dda_el = board.select('.bcdda')[0]
@@ -192,6 +201,9 @@ if __name__ == '__main__':
     stats = 'By player:\n'
 
     results = results_for_pattern(pattern, soup)
+    if not results:
+        raise ValueError('No boards matched %s' % pattern)
+
     for declarer, rs in groupby(sorted(results, key=lambda r: r.declarer), lambda r: r.declarer):
         rs = list(rs)
         avg = 1. * sum((float(r.ew_matchpoints) for r in rs)) / len(rs)
@@ -207,7 +219,7 @@ if __name__ == '__main__':
     print stats
 
     remove_unplayed_boards(pattern, soup)
-    remove_section(soup, 'A')  # TODO: detect the player's section.
+    filter_section(soup, 'A')
     add_stats(soup, stats)
     add_links(soup, source)
     filterpath = htmlpath.replace('.html', '.filtered.html')
